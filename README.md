@@ -1,3 +1,21 @@
+> [!IMPORTANT]
+> This fork fixes several build / packaging / dependency issues so that you can use ProGraML on modern machines.
+> A `.whl` file can be found in the Releases section.
+> To install the fork, run:
+> ```shell
+> $ uv add 'programl@https://github.com/felsenhower/ProGraML/releases/download/v0.3.2-fix1/programl-0.3.2-py3-none-manylinux2014_x86_64.whl'
+> ```
+> or
+> ```shell
+> $ pip install https://github.com/felsenhower/ProGraML/releases/download/v0.3.2-fix1/programl-0.3.2-py3-none-manylinux2014_x86_64.whl
+> ```
+> 
+> Side Notes:
+> - The API reference can be found here:
+>   https://chriscummins.github.io/ProGraML/index.html
+> - The original research paper can be found here:
+>   https://proceedings.mlr.press/v139/cummins21a.html
+
 <h1 align="center">ProGraML: Program Graphs for Machine Learning</h1>
 
 <p align="center">
