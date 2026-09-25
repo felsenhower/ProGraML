@@ -1,2 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "programl"
+dynamic = ["version", "dependencies", "optional-dependencies"]
+description = "A Graph-based Program Representation for Data Flow Analysis and Compiler Optimizations"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { text = "Apache 2.0" }
+authors = [{ name = "Chris Cummins", email = "chrisc.101@gmail.com" }]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Compilers",
+]
+
+[project.urls]
+Homepage = "https://github.com/ChrisCummins/ProGraML"
+
+[tool.setuptools.dynamic]
+version = { file = "version.txt" }
+dependencies = { file = "programl/requirements.txt" }
+
+[tool.setuptools.dynamic.optional-dependencies]
+dgl = { file = "programl/requirements-dgl.txt" }
+pyg = { file = "programl/requirements-pyg.txt" }
+all = { file = "programl/requirements-all.txt" }
+
 [tool.isort]
 profile = "black"

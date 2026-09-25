@@ -11,7 +11,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
+
+from programl.util.py.runfiles_path import runfiles_path
 
 
 def _communicate(process, input=None, timeout=None):
@@ -79,6 +81,21 @@ def _get_system_includes() -> Iterable[Path]:
         )
 
 
+def _get_bundled_system_includes() -> Optional[List[Path]]:
+    """Return vendored, known-compatible C++ system headers, if bundled.
+
+    Populated at wheel-build time by tools/vendor_stdlib_headers.py, captured
+    from the same environment the native binaries are built in. This lets
+    clang2graph (built against a fixed, old Clang release) parse a header set
+    it is known to understand, instead of whatever the host happens to have.
+    """
+    bundled_root = runfiles_path("programl/third_party/libstdcxx_headers")
+    if not bundled_root.is_dir():
+        return None
+    dirs = sorted(p for p in bundled_root.iterdir() if p.is_dir())
+    return dirs or None
+
+
 # Memoized search paths. Call get_system_includes() to access them.
 _SYSTEM_INCLUDES = None
 
@@ -86,9 +103,11 @@ _SYSTEM_INCLUDES = None
 def get_system_includes() -> List[Path]:
     """Determine the system include paths for C/C++ compilation jobs.
 
-    This uses the system compiler to determine the search paths for C/C++ system
-    headers. By default, :code:`c++` is invoked. This can be overridden by
-    setting :code:`os.environ["CXX"]`.
+    If a vendored, known-compatible header set was bundled at wheel-build
+    time, it takes precedence. Otherwise, this uses the system compiler to
+    determine the search paths for C/C++ system headers. By default,
+    :code:`c++` is invoked. This can be overridden by setting
+    :code:`os.environ["CXX"]`.
 
     :return: A list of paths to system header directories.
 
@@ -98,5 +117,5 @@ def get_system_includes() -> List[Path]:
     # Memoize the system includes paths.
     global _SYSTEM_INCLUDES
     if _SYSTEM_INCLUDES is None:
-        _SYSTEM_INCLUDES = list(_get_system_includes())
+        _SYSTEM_INCLUDES = _get_bundled_system_includes() or list(_get_system_includes())
     return _SYSTEM_INCLUDES

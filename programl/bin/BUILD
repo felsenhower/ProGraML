@@ -42,6 +42,7 @@ filegroup(
         "//conditions:default": [
             ":libLLVMPolly-10.0.0",
             ":libLLVMPolly-6.0.0",
+            ":libtinfo-5",
         ],
     }),
     visibility = ["//visibility:public"],
@@ -66,6 +67,22 @@ genrule(
     ],
     outs = ["libLLVMPolly.so.10.0.0"],
     cmd = "cp $$(dirname $(location @clang-llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04//:clang))/../lib/LLVMPolly.so $@",
+    visibility = ["//visibility:public"],
+)
+
+# LLVM 10's prebuilt libLLVMSupport dynamically depends on ncurses5's
+# libtinfo.so.5, which most modern distros no longer ship. Vendor a copy from
+# the pinned build container so the wheel is self-contained; consumed via the
+# $ORIGIN rpath already set on clang2graph-10/llvm2graph-*.
+genrule(
+    name = "libtinfo-5",
+    outs = ["libtinfo.so.5"],
+    cmd = (
+        "cp /lib/x86_64-linux-gnu/libtinfo.so.5 $@ || " +
+        "cp /usr/lib/x86_64-linux-gnu/libtinfo.so.5 $@ || " +
+        "cp /lib64/libtinfo.so.5 $@ || " +
+        "cp /usr/lib64/libtinfo.so.5 $@"
+    ),
     visibility = ["//visibility:public"],
 )
 
