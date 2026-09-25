@@ -1,0 +1,72 @@
+---
+# Builds the Sphinx/Doxygen documentation and publishes it to GitHub Pages.
+#
+# This requires that GitHub Pages is enabled for this repository with
+# "Source" set to "GitHub Actions" (Settings -> Pages).
+name: Deploy GitHub Pages
+
+on:
+    push:
+        branches: [development]
+        paths:
+            - "Documentation/**"
+            - "programl/**"
+            - "version.txt"
+            - ".github/workflows/pages.yaml"
+            - ".github/actions/install-build-dependencies/**"
+    workflow_dispatch:
+
+# Only ever run one deployment at a time, letting in-flight runs finish
+# rather than cancelling them, so that the published site is never left
+# half-updated.
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v2
+
+            - uses: actions/setup-python@v2
+              with:
+                  python-version: 3.9
+
+            - name: Install build dependencies
+              uses: ./.github/actions/install-build-dependencies
+
+            - name: Install documentation dependencies
+              run: |
+                  sudo apt-get install doxygen graphviz
+                  python -m pip install -r Documentation/requirements.txt
+
+            - name: Build documentation
+              run: |
+                  make bazel-build regenerate-protos doxygen
+                  PYTHONPATH="$(pwd)/bazel-bin/py_package.runfiles/programl" make -C Documentation html
+              env:
+                  BAZEL_OPTS: --batch
+                  BAZEL_FETCH_OPTS: --config=ci
+                  BAZEL_BUILD_OPTS: --config=ci
+
+            - name: Upload pages artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: Documentation/build/html
+
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v4
