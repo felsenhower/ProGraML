@@ -9,7 +9,8 @@ runs:
                   curl -L "https://github.com/bazelbuild/bazelisk/releases/download/v1.6.1/bazelisk-linux-amd64" > bazel
                   chmod +x bazel
                   sudo mv bazel /usr/local/bin/bazel
-                  sudo apt-get install clang-9 patchelf
+                  sudo apt-get update
+                  sudo apt-get install -y clang patchelf
               fi
           shell: bash
 

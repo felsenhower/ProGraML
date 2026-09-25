@@ -32,9 +32,9 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v4
 
-            - uses: actions/setup-python@v2
+            - uses: actions/setup-python@v5
               with:
                   python-version: 3.9
 
@@ -43,7 +43,8 @@ jobs:
 
             - name: Install documentation dependencies
               run: |
-                  sudo apt-get install doxygen graphviz
+                  sudo apt-get update
+                  sudo apt-get install -y doxygen graphviz
                   python -m pip install -r Documentation/requirements.txt
 
             - name: Build documentation
@@ -51,7 +52,6 @@ jobs:
                   make bazel-build regenerate-protos doxygen
                   PYTHONPATH="$(pwd)/bazel-bin/py_package.runfiles/programl" make -C Documentation html
               env:
-                  BAZEL_OPTS: --batch
                   BAZEL_FETCH_OPTS: --config=ci
                   BAZEL_BUILD_OPTS: --config=ci
 

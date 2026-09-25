@@ -11,16 +11,14 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v4
             - name: Install clang-format
               run: |
-                  wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-                  sudo apt-get install clang-format-10
-                  sudo rm -f /usr/bin/clang-format
-                  sudo ln -s /usr/bin/clang-format-10 /usr/bin/clang-format
+                  sudo apt-get update
+                  sudo apt-get install -y clang-format
                   clang-format --version
             - name: Install go
-              uses: actions/setup-go@v2
+              uses: actions/setup-go@v5
               with:
                   go-version: ^1.13.1
             - name: Install buildifier
@@ -32,12 +30,12 @@ jobs:
                   GO111MODULE=on go install github.com/uber/prototool/cmd/prototool@dev
                   prototool version
             - name: Install Python 3.8
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v5
               with:
                   python-version: 3.8
             - name: Install Python dependencies
               run: |
-                  sudo apt-get install python3-setuptools
+                  sudo apt-get install -y python3-setuptools
                   python3 -m pip install --upgrade wheel
                   python3 -m pip install -r tools/requirements.pre_commit.txt
                   python3 -m isort --version
