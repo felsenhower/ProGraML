@@ -406,6 +406,12 @@ class _Parser:
                 parts.append("[]")
             self._expect("]")
         parts.append(self._expect_word())
+        # A trailing `#(...)` is an aliasing annotation (e.g. `f32#([2], [0])`)
+        # attached to the type by the debug printer; discard it.
+        if self._peek_text() == "#":
+            self._advance()
+            self._expect("(")
+            self._skip_balanced_rest()
         return "".join(parts)
 
     def _parse_type_list_braced(self) -> List[str]:
@@ -636,9 +642,14 @@ class _Parser:
         if t.text == "(" or t.text == "[":
             # A bare `(...)`/`[...]` argument, e.g. a `rearrange` permutation
             # tuple, a `reshape` shape-change spec, or a `replicate` shape
-            # argument -- see `RawGroup`.
+            # argument -- see `RawGroup`. A multi-dimensional shape is
+            # written as several adjacent `[...]` groups (e.g. `[n][m]`),
+            # which together form a single argument.
             self._advance()
             self._skip_balanced_rest()
+            while t.text == "[" and self._peek_text() == "[":
+                self._advance()
+                self._skip_balanced_rest()
             return RawGroup()
         if t.text == "\\":
             return self._parse_lambda()
@@ -673,9 +684,11 @@ class _Parser:
 
         if nxt is not None and nxt.text == "[":
             self._advance()
-            idx = self._parse_expr()
+            # Multi-dimensional indexing is written as a single bracket pair
+            # with comma-separated indices, e.g. `matrix[i, j]`.
+            idxs = self._parse_expr_list_until("]")
             self._expect("]")
-            return PrimCall(op="index", args=[VarRef(name=name), idx])
+            return PrimCall(op="index", args=[VarRef(name=name)] + idxs)
 
         if nxt is not None and nxt.kind == "word" and _is_type_word(nxt.text):
             from_ty = self._advance().text
