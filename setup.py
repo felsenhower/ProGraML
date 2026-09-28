@@ -54,6 +54,7 @@ _libstdcxx_headers = [
 
 setuptools.setup(
     packages=[
+        "programl.ir.futhark",
         "programl.ir.llvm",
         "programl.proto",
         "programl.third_party.inst2vec",
