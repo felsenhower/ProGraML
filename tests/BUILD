@@ -72,6 +72,15 @@ py_test(
 )
 
 py_test(
+    name = "from_futhark_test",
+    srcs = ["from_futhark_test.py"],
+    deps = [
+        "//programl",
+        "//tests:test_main",
+    ],
+)
+
+py_test(
     name = "from_xla_hlo_proto_test",
     srcs = ["from_xla_hlo_proto_test.py"],
     data = ["//tests/data:hlo_protos"],

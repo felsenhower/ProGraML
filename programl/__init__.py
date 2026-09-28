@@ -43,6 +43,7 @@ from programl.exceptions import (
     GraphTransformError,
     UnsupportedCompiler,
 )
+from programl.ir.futhark import from_futhark
 from programl.proto import ProgramGraph
 from programl.serialize_ops import (
     from_bytes,
@@ -70,6 +71,7 @@ __all__ = [
     "from_bytes",
     "from_clang",
     "from_cpp",
+    "from_futhark",
     "from_llvm_ir",
     "from_string",
     "from_xla_hlo_proto",

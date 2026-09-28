@@ -19,7 +19,6 @@ py_library(
     srcs = [
         "__init__.py",
         "create_ops.py",
-        "exceptions.py",
         "serialize_ops.py",
         "transform_ops.py",
         "version.py",
@@ -29,11 +28,19 @@ py_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":exceptions",
+        "//programl/ir/futhark",
         "//programl/ir/llvm:inst2vec_encoder",
         "//programl/proto",
         "//programl/third_party/tensorflow:xla_py",
         "//programl/util/py:util",
     ],
+)
+
+py_library(
+    name = "exceptions",
+    srcs = ["exceptions.py"],
+    visibility = ["//visibility:public"],
 )
 
 genrule(
