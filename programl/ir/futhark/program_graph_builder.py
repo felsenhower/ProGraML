@@ -73,6 +73,7 @@ from programl.ir.futhark.ir_parser import (
     NilFn,
     PrimCall,
     Program,
+    RawGroup,
     Tuple as IrTuple,
     VarRef,
 )
@@ -270,10 +271,13 @@ def _build_stmt(
         _wire_data_operands(ctx, function, env, instr, values)
         for lam in lambdas:
             _wire_lambda_call(ctx, instr, _build_lambda(ctx, lam))
+        ctx.builder.set_text_feature(instr, "full_text", expr.fn)
         callee = ctx.functions.get(expr.fn)
-        if callee is None:
-            raise FutharkGraphBuilderError(f"Call to undefined function `{expr.fn}`")
-        _wire_lambda_call(ctx, instr, callee)
+        if callee is not None:
+            _wire_lambda_call(ctx, instr, callee)
+        # Otherwise this calls a compiler intrinsic (e.g. `sin32`, `sqrt32`)
+        # rather than a function defined in the program, so there's no body
+        # to add a CALL edge to.
     elif isinstance(expr, PrimCall):
         values, lambdas = _flatten_operands(expr.args)
         _wire_data_operands(ctx, function, env, instr, values)
@@ -443,7 +447,7 @@ def _flatten_operands(exprs: List[Expr]) -> Tuple[List[Expr], List[Lambda]]:
     lambdas: List[Lambda] = []
 
     def walk(e: Expr) -> None:
-        if isinstance(e, NilFn):
+        if isinstance(e, (NilFn, RawGroup)):
             return
         if isinstance(e, IrTuple):
             for el in e.elems:

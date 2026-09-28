@@ -104,5 +104,56 @@ def test_for_loop_produces_back_edge():
     assert len(incoming_control) == 2
 
 
+def test_derived_array_size_and_reshape():
+    """Regression test for two Core IR constructs used by `tabulate_2d`.
+
+    `--standard` inlining can introduce statements that bind an
+    existentially-derived size to a name like `d<{(+) n 1}>_10250` (see
+    `ir_parser.tokenize`), and `flatten`/`unflatten`-style code lowers to a
+    `reshape`/`rearrange` call whose non-array arguments are bare `(...)`/
+    `[...]` shape metadata (see `ir_parser.RawGroup`).
+    """
+    graph = pg.from_futhark(
+        """
+        module float_type = f32
+        type t = float_type.t
+
+        let pi: t = 3.14159265358979323846
+
+        let matrix_size (interlines: i64): i64 = interlines * 8 + 8
+
+        let get_matrix (interlines: i64): [][]t =
+          let n = matrix_size interlines
+          in tabulate_2d (n + 1) (n + 1) (\\_ _ -> 0.0)
+
+        let jacobi_iteration [m] (h: t) (matrix: [m][m]t): [m][m]t =
+          let n = m - 1
+          let pih = pi * h
+          let fpisin = 0.25 * 2.0 * pi * pi * h * h
+          in tabulate_2d m m
+               (\\i j ->
+                  if i == 0 || i == n || j == 0 || j == n
+                  then matrix[i][j]
+                  else let star = 0.25 * (matrix[i - 1][j] + matrix[i][j - 1] +
+                                           matrix[i][j + 1] + matrix[i + 1][j])
+                       in star + fpisin * float_type.sin (pih * float_type.i64 i) * float_type.sin (pih * float_type.i64 j))
+
+        let get_residuum [m] (old: [m][m]t) (new: [m][m]t): t =
+          map2 (\\row_old row_new -> map2 (\\a b -> float_type.abs (a - b)) row_old row_new) old new
+          |> flatten
+          |> float_type.maximum
+
+        let main (interlines: i64): t =
+          let n = matrix_size interlines
+          let h = 1.0 / float_type.i64 n
+          let m0 = get_matrix interlines
+          let m1 = jacobi_iteration h m0
+          in get_residuum m0 m1
+        """
+    )
+    assert isinstance(graph, pg.ProgramGraph)
+    assert "entry_main" in {f.name for f in graph.function}
+
+
 if __name__ == "__main__":
     main()

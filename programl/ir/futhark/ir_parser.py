@@ -76,6 +76,20 @@ class NilFn:
 
 
 @dataclass
+class RawGroup:
+    """A bare ``(...)``/``[...]`` argument that carries no runtime data
+    dependency.
+
+    Used for things like a ``rearrange`` permutation tuple (``(1, 0)``), a
+    ``reshape`` shape-change spec (``(0::2=>[n]; [n])``), or a ``replicate``
+    shape argument (``[n]``): all are constant shape/index metadata, not
+    values computed at runtime. Parsed (as a balanced token span) so that it
+    doesn't break parsing, then discarded -- the same simplification already
+    applied to certificates (see the module docstring).
+    """
+
+
+@dataclass
 class Tuple:
     elems: "List[Expr]"
 
@@ -138,7 +152,7 @@ class Loop:
     cond_var: Optional[str] = None
 
 
-Expr = Union[Literal, VarRef, NilFn, Tuple, Lambda, PrimCall, Apply, If, Loop]
+Expr = Union[Literal, VarRef, NilFn, RawGroup, Tuple, Lambda, PrimCall, Apply, If, Loop]
 
 
 @dataclass
@@ -172,7 +186,8 @@ class Program:
 # Lexer.
 # --------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|->|[{}()\[\]:,=#\\]|[^\s{}()\[\]:,=#\\"]+')
+_PUNCT_CHARS = "{}()[]:,=#\\"
+_OPEN_TO_CLOSE = {"(": ")", "{": "}", "[": "]"}
 
 
 @dataclass
@@ -187,16 +202,59 @@ def _unescape(s: str) -> str:
 
 def tokenize(text: str) -> List[Token]:
     tokens = []
-    for m in _TOKEN_RE.finditer(text):
-        s = m.group(0)
-        if s and s[0] == '"':
-            tokens.append(Token("string", _unescape(s[1:-1])))
-        elif s == "->":
-            tokens.append(Token("arrow", s))
-        elif len(s) == 1 and s in "{}()[]:,=#\\":
-            tokens.append(Token("punct", s))
-        else:
-            tokens.append(Token("word", s))
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" and j + 1 < n else 1
+            tokens.append(Token("string", _unescape(text[i + 1 : j])))
+            i = j + 1
+            continue
+        if text[i : i + 2] == "->":
+            tokens.append(Token("arrow", "->"))
+            i += 2
+            continue
+        if c in _PUNCT_CHARS:
+            tokens.append(Token("punct", c))
+            i += 1
+            continue
+        # A "word": a run of otherwise-unbroken characters, with one twist --
+        # Futhark's debug printer names existentially-bound sizes after the
+        # expression that defines them, e.g. `d<{(+) n 1}>_10250` for "the
+        # dimension equal to n+1". The `{...}` (and any nested `(...)`/`[...]`
+        # it contains) would otherwise be lexed as separate punctuation and
+        # break the name apart, so when a bare `<` is immediately followed by
+        # an opening bracket, consume through to the matching `>` (tracking
+        # nested brackets, so this also works when the expression itself
+        # contains a further `d<...>` name) as part of the same word.
+        start = i
+        while i < n:
+            c = text[i]
+            if c.isspace() or c in _PUNCT_CHARS or c == '"':
+                break
+            i += 1
+            if c == "<" and i < n and text[i] in _OPEN_TO_CLOSE:
+                stack = []
+                while i < n:
+                    cc = text[i]
+                    if not stack and cc == ">":
+                        i += 1
+                        break
+                    if cc in _OPEN_TO_CLOSE:
+                        stack.append(_OPEN_TO_CLOSE[cc])
+                        i += 1
+                    elif stack and cc == stack[-1]:
+                        stack.pop()
+                        i += 1
+                    else:
+                        i += 1
+        tokens.append(Token("word", text[start:i]))
     return tokens
 
 
@@ -575,6 +633,13 @@ class _Parser:
 
         if t.text == "{":
             return self._parse_tuple()
+        if t.text == "(" or t.text == "[":
+            # A bare `(...)`/`[...]` argument, e.g. a `rearrange` permutation
+            # tuple, a `reshape` shape-change spec, or a `replicate` shape
+            # argument -- see `RawGroup`.
+            self._advance()
+            self._skip_balanced_rest()
+            return RawGroup()
         if t.text == "\\":
             return self._parse_lambda()
         if t.text == "apply":
