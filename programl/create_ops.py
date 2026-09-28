@@ -153,6 +153,7 @@ def from_cpp(
         )
 
     if system_includes:
+        copts += ["-nostdinc++"]
         for directory in get_system_includes():
             copts += ["-isystem", str(directory)]
 
@@ -256,6 +257,7 @@ def from_clang(
 
     extra_copts = []
     if system_includes:
+        extra_copts += ["-nostdinc++"]
         for directory in get_system_includes():
             extra_copts += ["-isystem", str(directory)]
 

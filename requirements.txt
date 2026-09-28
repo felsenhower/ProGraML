@@ -1,5 +1,7 @@
 -r Documentation/requirements.txt
 -r programl/requirements.txt
+-r programl/requirements-dgl.txt
+-r programl/requirements-pyg.txt
 -r tasks/requirements.txt
 -r tests/requirements.txt
 -r tools/perf_monitor/requirements.txt

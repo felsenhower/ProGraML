@@ -14,4 +14,3 @@
 set -euxo pipefail
 
 apt-get update
-grep -v grpc programl/requirements.txt | xargs pip3 install

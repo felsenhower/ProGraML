@@ -16,15 +16,13 @@
 """The graph transform ops are used to modify or convert Program Graphs to
 another representation.
 """
+from __future__ import annotations
+
 import json
 import subprocess
-import torch
 from typing import Any, Dict, Iterable, Optional, Union
 
-import dgl
 import networkx as nx
-from dgl.heterograph import DGLHeteroGraph
-from torch_geometric.data import HeteroData
 from networkx.readwrite import json_graph as nx_json
 
 from programl.exceptions import GraphTransformError
@@ -153,7 +151,9 @@ def to_networkx(
     """
 
     def _run_one(json_data):
-        return nx_json.node_link_graph(json_data, multigraph=True, directed=True)
+        # graph2json always emits the pre-networkx-3.x "links" edge key; pass
+        # it explicitly since node_link_graph's own default has since changed.
+        return nx_json.node_link_graph(json_data, multigraph=True, directed=True, edges="links")
 
     if isinstance(graphs, ProgramGraph):
         return _run_one(to_json(graphs, timeout=timeout))
@@ -170,7 +170,7 @@ def to_dgl(
     timeout: int = 300,
     executor: Optional[ExecutorLike] = None,
     chunksize: Optional[int] = None,
-) -> Union[DGLHeteroGraph, Iterable[DGLHeteroGraph]]:
+) -> Union[dgl.DGLGraph, Iterable[dgl.DGLGraph]]:
     """Convert one or more Program Graphs to `DGLGraphs
     <https://docs.dgl.ai/en/latest/api/python/dgl.DGLGraph.html#dgl.DGLGraph>`_.
 
@@ -201,9 +201,16 @@ def to_dgl(
 
     :raises TimeoutError: If the specified timeout is reached.
     """
+    try:
+        import dgl
+    except ImportError as e:
+        raise ImportError(
+            "to_dgl() requires the optional 'dgl' dependency. Install it "
+            "with `pip install programl[dgl]`."
+        ) from e
 
     def _run_one(nx_graph):
-        return dgl.DGLGraph(nx_graph)
+        return dgl.from_networkx(nx_graph)
 
     if isinstance(graphs, ProgramGraph):
         return _run_one(to_networkx(graphs))
@@ -301,6 +308,14 @@ def to_pyg(
     :return: A HeteroData graph when a single input is provided, else an
         iterable sequence of HeteroData graphs.
     """
+    try:
+        import torch
+        from torch_geometric.data import HeteroData
+    except ImportError as e:
+        raise ImportError(
+            "to_pyg() requires the optional 'torch' and 'torch_geometric' "
+            "dependencies. Install them with `pip install programl[pyg]`."
+        ) from e
 
     def _run_one(graph: ProgramGraph) -> HeteroData:
         # 4 lists, one per edge type

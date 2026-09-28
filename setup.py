@@ -17,17 +17,10 @@
 # limitations under the License.
 
 import distutils.util
-import io
+import os
 
 import setuptools
 
-with io.open("version.txt", encoding="utf-8") as f:
-    version = f.read().strip()
-with open("README.md") as f:
-    with io.open("README.md", encoding="utf-8") as f:
-        long_description = f.read()
-with open("programl/requirements.txt") as f:
-    requirements = [ln.split("#")[0].rstrip() for ln in f.readlines()]
 
 # When building a bdist_wheel we need to set the appropriate tags: this package
 # includes compiled binaries, and does not include compiled python extensions.
@@ -48,15 +41,18 @@ try:
 except ImportError:
     bdist_wheel = None
 
+_PACKAGE_ROOT = "bazel-bin/py_package.runfiles/programl"
+
+_PROGRAML_PKG_DIR = os.path.join(_PACKAGE_ROOT, "programl")
+
+_libstdcxx_headers_dir = os.path.join(_PROGRAML_PKG_DIR, "third_party/libstdcxx_headers")
+_libstdcxx_headers = [
+    os.path.relpath(os.path.join(root, name), _PROGRAML_PKG_DIR)
+    for root, _, names in os.walk(_libstdcxx_headers_dir)
+    for name in names
+]
+
 setuptools.setup(
-    name="programl",
-    version=version,
-    description="A Graph-based Program Representation for Data Flow Analysis and Compiler Optimizations",
-    author="Chris Cummins",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/ChrisCummins/ProGraML",
-    license="Apache 2.0",
     packages=[
         "programl.ir.llvm",
         "programl.proto",
@@ -66,31 +62,16 @@ setuptools.setup(
         "programl",
     ],
     package_dir={
-        "": "bazel-bin/py_package.runfiles/programl",
+        "": _PACKAGE_ROOT,
     },
     package_data={
         "programl": [
             "bin/*",
             "ir/llvm/internal/*.pickle",
+            *_libstdcxx_headers,
         ],
     },
-    install_requires=requirements,
     include_package_data=True,
-    python_requires=">=3.6",
-    classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Environment :: Console",
-        "Intended Audience :: Developers",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3",
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
-        "Topic :: Software Development :: Compilers",
-    ],
     cmdclass={"bdist_wheel": bdist_wheel},
     platforms=[distutils.util.get_platform()],
     zip_safe=False,

@@ -162,6 +162,16 @@ BUILD_TARGET ?= //:py_package
 bazel-build:
 	$(BAZEL) $(BAZEL_OPTS) build $(BAZEL_BUILD_OPTS) $(BUILD_TARGET)
 
+PY_PACKAGE_RUNFILES := bazel-bin/py_package.runfiles
+LIBSTDCXX_HEADERS_DEST := $(PY_PACKAGE_RUNFILES)/programl/programl/third_party/libstdcxx_headers
+VENDOR_HEADERS_CXX ?= g++
+
+regenerate-protos: bazel-build
+	$(PYTHON) tools/regenerate_protos.py $(PY_PACKAGE_RUNFILES)/programl
+
+vendor-stdlib-headers: bazel-build
+	$(PYTHON) tools/vendor_stdlib_headers.py $(VENDOR_HEADERS_CXX) $(LIBSTDCXX_HEADERS_DEST)
+
 install-test-data:
 	@echo "$(BAZEL) $(BAZEL_OPTS) build $(BAZEL_BUILD_OPTS) //tests/data"
 	@if ! $(BAZEL) $(BAZEL_OPTS) build $(BAZEL_BUILD_OPTS) //tests/data 2>log.txt ; then \
@@ -171,20 +181,20 @@ install-test-data:
 	fi
 	rm log.txt
 
-bdist_wheel: bazel-build
+bdist_wheel: bazel-build regenerate-protos vendor-stdlib-headers
 	$(PYTHON) setup.py bdist_wheel
 
 bdist_wheel-linux-rename:
 	mv dist/programl-$(VERSION)-py3-none-linux_x86_64.whl dist/programl-$(VERSION)-py3-none-manylinux2014_x86_64.whl
 
-# The docker image to use for building the bdist_wheel-linux target. See
-# packaging/Dockerfile.
-MANYLINUX_DOCKER_IMAGE ?= chriscummins/compiler_gym-manylinux-build:2021-09-21
+MANYLINUX_DOCKER_IMAGE ?= programl-manylinux-build:local
 
-bdist_wheel-linux:
+docker-image:
+	docker build -t $(MANYLINUX_DOCKER_IMAGE) -f packaging/Dockerfile .
+
+bdist_wheel-linux: docker-image
 	rm -rf build
-	docker pull $(MANYLINUX_DOCKER_IMAGE)
-	docker run -v $(ROOT):/ProGraML --workdir /ProGraML --rm --shm-size=8g "$(MANYLINUX_DOCKER_IMAGE)" /bin/sh -c './packaging/container_init.sh && make bdist_wheel bdist_wheel-linux-rename BAZEL_OPTS="$(BAZEL_OPTS)" BAZEL_BUILD_OPTS="$(BAZEL_BUILD_OPTS)" BAZEL_FETCH_OPTS="$(BAZEL_FETCH_OPTS)" && rm -rf build'
+	docker run -v $(ROOT):/ProGraML -v programl-bazel-cache:/root/.cache/bazel --workdir /ProGraML --rm --shm-size=8g "$(MANYLINUX_DOCKER_IMAGE)" /bin/sh -c 'rm -rf dist && ./packaging/container_init.sh && make bdist_wheel bdist_wheel-linux-rename PYTHON=/opt/venv3.11/bin/python BAZEL_OPTS="$(BAZEL_OPTS)" BAZEL_BUILD_OPTS="$(BAZEL_BUILD_OPTS)" BAZEL_FETCH_OPTS="$(BAZEL_FETCH_OPTS)" && rm -rf build'
 
 bdist_wheel-linux-shell:
 	docker run -v $(ROOT):/ProGraML --workdir /ProGraML --rm --shm-size=8g -it --entrypoint "/bin/bash" chriscummins/compiler_gym-linux-build:latest
@@ -194,7 +204,7 @@ bdist_wheel-linux-test:
 
 all: docs bdist_wheel bdist_wheel-linux
 
-.PHONY: bazel-build bdist_wheel bdist_wheel-linux bdist_wheel-linux-shell bdist_wheel-linux-test
+.PHONY: bazel-build bdist_wheel bdist_wheel-linux bdist_wheel-linux-shell bdist_wheel-linux-test regenerate-protos vendor-stdlib-headers docker-image
 
 
 ###########
