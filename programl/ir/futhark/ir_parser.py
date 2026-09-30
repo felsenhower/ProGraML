@@ -220,6 +220,13 @@ def tokenize(text: str) -> List[Token]:
             tokens.append(Token("arrow", "->"))
             i += 2
             continue
+        if text[i : i + 2] in (":+", ":-"):
+            # A flat-slice dimension spec, e.g. `0i64 :+ n * 1i64` -- kept as
+            # a single token so a bare `:` (type annotation) isn't lexed out
+            # from under it.
+            tokens.append(Token("punct", text[i : i + 2]))
+            i += 2
+            continue
         if c in _PUNCT_CHARS:
             tokens.append(Token("punct", c))
             i += 1
@@ -234,6 +241,12 @@ def tokenize(text: str) -> List[Token]:
         # nested brackets, so this also works when the expression itself
         # contains a further `d<...>` name) as part of the same word.
         start = i
+        # Futhark's debug printer also names some temporaries after a
+        # comparison operator, e.g. `>=_lhs_14309`. Consume the two-char
+        # operator prefix up front so the `=` doesn't get lexed away as
+        # punctuation and split the identifier apart.
+        if text[i : i + 2] in (">=", "<=", "==", "!="):
+            i += 2
         while i < n:
             c = text[i]
             if c.isspace() or c in _PUNCT_CHARS or c == '"':
@@ -278,7 +291,7 @@ _TYPE_WORDS = {
 # disambiguate a bare variable reference from the start of a unary prefix
 # call such as `neg_bool x` -- e.g. without "do" here, parsing the `n` in
 # `for i:i32 < n do {...}` would wrongly treat `n` as a unary call on `do`.
-_EXPR_TERMINATORS = {"in", "to", "let", "then", "else", "do", "for", "while"}
+_EXPR_TERMINATORS = {"in", "to", "let", "then", "else", "do", "for", "while", "with"}
 
 
 def _is_literal_word(text: str) -> bool:
@@ -365,6 +378,29 @@ class _Parser:
             elif t.text in closers:
                 depth -= 1
 
+    def _bracket_group_has_type_annotation(self) -> bool:
+        """Look ahead (without consuming) past a `[...]` group at the current
+        position to see if it's followed by a `: TYPE` annotation.
+
+        Assumes the current token is the group's opening `[`.
+        """
+        openers = {"(", "{", "["}
+        closers = {")", "}", "]"}
+        depth = 0
+        j = self._i
+        n = len(self._tokens)
+        while j < n:
+            tt = self._tokens[j].text
+            if tt in openers:
+                depth += 1
+            elif tt in closers:
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        j += 1
+        return j < n and self._tokens[j].text == ":"
+
     def _parse_fun(self) -> FunDef:
         self._expect_word("fun")
         name = self._expect_word()
@@ -398,6 +434,11 @@ class _Parser:
 
     def _parse_type(self) -> str:
         parts = []
+        # A leading `*` marks a "unique" (consumable) array type, e.g. in a
+        # loop pattern or function return type; it carries no data
+        # dependency of its own, so just note it in the text and move on.
+        if self._peek_text() == "*":
+            parts.append(self._advance().text)
         while self._peek_text() == "[":
             self._advance()
             if self._peek_text() != "]":
@@ -544,6 +585,41 @@ class _Parser:
             args.append(self._parse_expr())
         return args
 
+    def _parse_index_dim_list_until(self, closer: str) -> List[Expr]:
+        dims = []
+        if self._peek_text() == closer:
+            return dims
+        dims.append(self._parse_index_dim())
+        while self._peek_text() == ",":
+            self._advance()
+            dims.append(self._parse_index_dim())
+        return dims
+
+    def _parse_index_dim(self) -> Expr:
+        e = self._parse_expr()
+        if self._peek_text() in (":+", ":-"):
+            self._advance()
+            self._skip_slice_meta()
+        return e
+
+    def _skip_slice_meta(self) -> None:
+        # Skips the `num * stride` half of a flat-slice dim, up to (but not
+        # including) the next top-level `,` or `]`.
+        depth = 0
+        openers = {"(", "{", "["}
+        closers = {")", "}", "]"}
+        while True:
+            t = self._peek()
+            if t is None:
+                raise FutharkIRParseError("Unexpected end of input in slice")
+            if depth == 0 and t.text in (",", "]"):
+                return
+            if t.text in openers:
+                depth += 1
+            elif t.text in closers:
+                depth -= 1
+            self._advance()
+
     def _parse_tuple(self) -> Tuple:
         self._expect("{")
         elems = self._parse_expr_list_until("}")
@@ -639,6 +715,16 @@ class _Parser:
 
         if t.text == "{":
             return self._parse_tuple()
+        if t.text == "[" and self._bracket_group_has_type_annotation():
+            # A genuine array literal, e.g. `[-1i64, 0i64, 1i64] : []i64`
+            # (as opposed to a shape/permutation `RawGroup`, which never
+            # has a trailing type annotation).
+            self._advance()
+            elems = self._parse_expr_list_until("]")
+            self._expect("]")
+            node = PrimCall(op="array", args=elems)
+            self._maybe_type_annotation(node)
+            return node
         if t.text == "(" or t.text == "[":
             # A bare `(...)`/`[...]` argument, e.g. a `rearrange` permutation
             # tuple, a `reshape` shape-change spec, or a `replicate` shape
@@ -676,6 +762,16 @@ class _Parser:
         name = self._advance().text
         nxt = self._peek()
 
+        if nxt is not None and nxt.text == "with":
+            # An in-place array update: `arr with [i, j] = v`.
+            self._advance()
+            self._expect("[")
+            idxs = self._parse_expr_list_until("]")
+            self._expect("]")
+            self._expect("=")
+            value = self._parse_expr()
+            return PrimCall(op="update", args=[VarRef(name=name)] + idxs + [value])
+
         if nxt is not None and nxt.text == "(":
             self._advance()
             args = self._parse_expr_list_until(")")
@@ -685,8 +781,12 @@ class _Parser:
         if nxt is not None and nxt.text == "[":
             self._advance()
             # Multi-dimensional indexing is written as a single bracket pair
-            # with comma-separated indices, e.g. `matrix[i, j]`.
-            idxs = self._parse_expr_list_until("]")
+            # with comma-separated indices, e.g. `matrix[i, j]`. A dimension
+            # may instead be a flat slice `offset :+ num * stride`; only the
+            # offset is a real data dependency (num/stride just reference
+            # existing shape variables), so the rest is discarded like the
+            # other shape metadata (see `RawGroup`).
+            idxs = self._parse_index_dim_list_until("]")
             self._expect("]")
             return PrimCall(op="index", args=[VarRef(name=name)] + idxs)
 
