@@ -175,6 +175,10 @@ class FunDef:
     rettypes: List[str]
     body: Body
     is_entry: bool = False
+    # Ordered real (surface, pre-internalisation) parameter names, parsed
+    # from the entry's `entry("name", {p1: ty1, ...}, rettype)` header. Only
+    # set for entry points; `None` for ordinary `fun` definitions.
+    entry_param_names: Optional[List[str]] = None
 
 
 @dataclass
@@ -414,12 +418,15 @@ class _Parser:
         return FunDef(name=name, params=params, rettypes=rettypes, body=body)
 
     def _parse_entry(self) -> FunDef:
-        # The `entry(...)` header repeats information (under the exported
-        # name) that is given again in full below (under the internal
-        # `entry_NAME` symbol), so we only need to skip over it.
+        # The `entry(...)` header mostly repeats information that is given
+        # again in full below (under the internal `entry_NAME` symbol) --
+        # except its `{p1: ty1, p2: ty2, ...}` record lists only the real
+        # (surface, pre-internalisation) parameters, by name, in order,
+        # whereas `entry_NAME`'s own parameter list below may also include
+        # extra implicit parameters (e.g. array sizes) inserted by the
+        # compiler. Capture those surface names; discard everything else.
         self._expect_word("entry")
-        self._expect("(")
-        self._skip_balanced_rest()
+        entry_param_names = self._parse_entry_header()
         name = self._expect_word()
         self._expect("(")
         params = self._parse_typed_name_list(")")
@@ -428,7 +435,62 @@ class _Parser:
         rettypes = self._parse_type_list_braced()
         self._expect("=")
         body = self._parse_braced_body()
-        return FunDef(name=name, params=params, rettypes=rettypes, body=body, is_entry=True)
+        return FunDef(
+            name=name,
+            params=params,
+            rettypes=rettypes,
+            body=body,
+            is_entry=True,
+            entry_param_names=entry_param_names,
+        )
+
+    def _parse_entry_header(self) -> List[str]:
+        """Parse an `("name", {p1: ty1, p2: ty2, ...}, rettype)` entry
+        header (the exported name, and `(...)` have already been/are
+        consumed here), returning the ordered surface parameter names.
+
+        Assumes the leading `entry` word has already been consumed.
+        """
+        self._expect("(")
+        self._advance()  # the exported name string, e.g. "main" -- unused
+        self._expect(",")
+        param_names = []
+        self._expect("{")
+        if self._peek_text() != "}":
+            while True:
+                param_names.append(self._expect_word())
+                self._expect(":")
+                self._skip_type_value()
+                if self._peek_text() == ",":
+                    self._advance()
+                    continue
+                break
+        self._expect("}")
+        self._expect(",")
+        # Skip the return type(s) and the header's closing ")" -- depth
+        # starts at 1 for the outer "(" consumed above.
+        self._skip_balanced_rest()
+        return param_names
+
+    def _skip_type_value(self) -> None:
+        """Skip one type expression (e.g. `[]f64`, `opaque "(i32, i32)"`),
+        which may contain nested brackets or a quoted string, stopping at
+        the next top-level `,` or closing bracket.
+        """
+        depth = 0
+        openers = {"(", "{", "["}
+        closers = {")", "}", "]"}
+        while True:
+            t = self._peek()
+            if t is None:
+                raise FutharkIRParseError("Unexpected end of input while skipping a type")
+            if depth == 0 and (t.text == "," or t.text in closers):
+                break
+            if t.text in openers:
+                depth += 1
+            elif t.text in closers:
+                depth -= 1
+            self._advance()
 
     # -- Types. --------------------------------------------------------
 

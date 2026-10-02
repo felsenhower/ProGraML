@@ -215,5 +215,49 @@ def test_looped_jacobi_iteration():
     assert "entry_main" in {f.name for f in graph.function}
 
 
+INNER_PROD = """
+def dotprod A B = f64.sum (map2 (*) A B)
+
+let main [n] (a: [n]f64) (b: [n]f64) = dotprod a b
+"""
+
+
+def test_entry_param_index_tags_real_surface_params():
+    """`main`'s real params are `a`, `b`; the compiler inserts an implicit
+    `n` (array size) ahead of them, which should not get tagged."""
+    graph = pg.from_futhark(INNER_PROD)
+
+    entry_main_index = next(i for i, f in enumerate(graph.function) if f.name == "entry_main")
+    entry_instruction = next(
+        i
+        for i, n in enumerate(graph.node)
+        if n.type == Node.INSTRUCTION and n.function == entry_main_index and n.text == "entry"
+    )
+    param_edges = sorted(
+        (e for e in graph.edge if e.flow == Edge.DATA and e.source == entry_instruction),
+        key=lambda e: e.position,
+    )
+    param_vars = [e.target for e in param_edges]
+    assert len(param_vars) == 3
+    assert all(graph.node[v].type == Node.VARIABLE for v in param_vars)
+
+    tagged = {
+        v: graph.node[v].features.feature["entry_param_index"].int64_list.value[0]
+        for v in param_vars
+        if "entry_param_index" in graph.node[v].features.feature
+    }
+    assert sorted(tagged.values()) == [0, 1]
+
+    untagged = [v for v in param_vars if v not in tagged]
+    assert len(untagged) == 1
+
+    type_text_by_var = {
+        e.target: graph.node[e.source].text
+        for e in graph.edge
+        if e.flow == Edge.TYPE and e.target in param_vars
+    }
+    assert type_text_by_var[untagged[0]] == "i64"
+
+
 if __name__ == "__main__":
     main()

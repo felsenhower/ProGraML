@@ -273,6 +273,8 @@ def to_pyg(
     graphs: Union[ProgramGraph, Iterable[ProgramGraph]],
     timeout: int = 300,
     vocabulary: Optional[Dict[str, int]] = None,
+    node_stat_feature_key: str = "stat_feat",
+    node_stat_feature_width: Optional[int] = None,
     executor: Optional[ExecutorLike] = None,
     chunksize: Optional[int] = None,
 ) -> Union[HeteroData, Iterable[HeteroData]]:
@@ -292,6 +294,18 @@ def to_pyg(
         keys are the text attribute of the nodes and the values their respective
         indexes.
 
+    :param node_stat_feature_key: The node :code:`features` key under which a
+        per-node float feature vector may be stored. Only used when
+        :code:`node_stat_feature_width` is set.
+
+    :param node_stat_feature_width: If set, every node's
+        :code:`hetero_graph['nodes'].stat_feat` row is populated with the
+        :code:`node_stat_feature_key` feature's :code:`float_list.value` (if
+        present and of this length), else zeros; presence is recorded in
+        :code:`hetero_graph['nodes'].stat_feat_mask`. Defaults to :code:`None`,
+        which disables this (no :code:`stat_feat`/:code:`stat_feat_mask`
+        attributes are added).
+
     :param executor: An executor object, with method :code:`submit(callable,
         *args, **kwargs)` and returning a Future-like object with methods
         :code:`done() -> bool` and :code:`result() -> float`. The executor role
@@ -307,6 +321,10 @@ def to_pyg(
 
     :return: A HeteroData graph when a single input is provided, else an
         iterable sequence of HeteroData graphs.
+
+    :raises GraphTransformError: If a node's :code:`node_stat_feature_key`
+        feature is present but doesn't have :code:`node_stat_feature_width`
+        values.
     """
     try:
         import torch
@@ -345,6 +363,28 @@ def to_pyg(
             node_text_list.append(node_text)
             node_full_text_list.append(node_full_text)
 
+        stat_feat_rows = None
+        stat_feat_mask = None
+        if node_stat_feature_width is not None:
+            stat_feat_rows = []
+            stat_feat_mask = []
+            for node in graph.node:
+                if node_stat_feature_key in node.features.feature:
+                    values = list(
+                        node.features.feature[node_stat_feature_key].float_list.value
+                    )
+                    if len(values) != node_stat_feature_width:
+                        raise GraphTransformError(
+                            f"Node feature {node_stat_feature_key!r} has "
+                            f"{len(values)} values, expected "
+                            f"{node_stat_feature_width}"
+                        )
+                    stat_feat_rows.append(values)
+                    stat_feat_mask.append(1.0)
+                else:
+                    stat_feat_rows.append([0.0] * node_stat_feature_width)
+                    stat_feat_mask.append(0.0)
+
 
         vocab_ids = None
         if vocabulary is not None:
@@ -367,6 +407,10 @@ def to_pyg(
         hetero_graph['nodes']['text'] = node_text_list
         hetero_graph['nodes']['full_text'] = node_full_text_list
         hetero_graph['nodes'].x = vocab_ids
+
+        if node_stat_feature_width is not None:
+            hetero_graph['nodes'].stat_feat = torch.tensor(stat_feat_rows, dtype=torch.float32)
+            hetero_graph['nodes'].stat_feat_mask = torch.tensor(stat_feat_mask, dtype=torch.float32)
 
         # Add the adjacency lists
         hetero_graph['nodes', 'control', 'nodes'].edge_index = (
