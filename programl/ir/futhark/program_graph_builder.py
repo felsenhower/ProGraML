@@ -155,6 +155,10 @@ class ProgramGraphBuilder:
         feature = self._graph.node[node_index].features.feature[key]
         feature.bytes_list.value.append(value.encode("utf-8"))
 
+    def set_int_feature(self, node_index: int, key: str, value: int) -> None:
+        feature = self._graph.node[node_index].features.feature[key]
+        feature.int64_list.value.append(value)
+
 
 @dataclass
 class _FunctionInfo:
@@ -191,7 +195,9 @@ def build_program_graph(program: Program, module_name: str = "futhark") -> Progr
     # every top-level definition, so that `apply` call targets can always be
     # resolved regardless of definition order.
     for fun in program.funs:
-        info = _create_function_skeleton(ctx, fun.name, fun.params)
+        info = _create_function_skeleton(
+            ctx, fun.name, fun.params, fun.entry_param_names if fun.is_entry else None
+        )
         ctx.functions[fun.name] = info
         ctx.all_functions.append(info)
 
@@ -213,10 +219,16 @@ def build_program_graph(program: Program, module_name: str = "futhark") -> Progr
 
 
 def _create_function_skeleton(
-    ctx: _Ctx, name: str, params: List[Tuple[str, str]]
+    ctx: _Ctx,
+    name: str,
+    params: List[Tuple[str, str]],
+    entry_param_names: Optional[List[str]] = None,
 ) -> _FunctionInfo:
     function = ctx.builder.add_function(name, ctx.module)
     entry = ctx.builder.add_instruction("entry", function)
+    surface_index_by_name = (
+        {n: i for i, n in enumerate(entry_param_names)} if entry_param_names else {}
+    )
     param_vars = {}
     for i, (pname, ptype) in enumerate(params):
         var = ctx.builder.add_variable("var", function)
@@ -225,6 +237,18 @@ def _create_function_skeleton(
         ctx.builder.add_type_edge(0, type_node, var)
         ctx.builder.add_data_edge(i, entry, var)
         param_vars[pname] = var
+
+        # Lowered Core IR names are the original name plus a fresh numeric
+        # suffix (e.g. `a` -> `a_7706`); strip it before matching against
+        # the real surface parameter names. Implicit params the compiler
+        # inserts (e.g. array sizes) won't match anything and are left
+        # untagged. This doesn't attempt to match destructured/tuple
+        # surface parameters (e.g. `(p: (i32, i32))`, lowered to `0_N`,
+        # `1_N`), which also end up untagged.
+        m = re.match(r"^(.*)_\d+$", pname)
+        base_name = m.group(1) if m else pname
+        if base_name in surface_index_by_name:
+            ctx.builder.set_int_feature(var, "entry_param_index", surface_index_by_name[base_name])
     return _FunctionInfo(function=function, entry=entry, param_vars=param_vars)
 
 

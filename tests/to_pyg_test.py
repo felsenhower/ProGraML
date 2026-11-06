@@ -118,5 +118,34 @@ def test_to_pyg_smoke_test(llvm_program_graph: pg.ProgramGraph):
     assert num_edges <= len(llvm_program_graph.edge)
 
 
+def test_to_pyg_node_stat_feature_default_no_attrs(graph: pg.ProgramGraph):
+    pyg_graph = pg.to_pyg(graph)
+    assert "stat_feat" not in pyg_graph["nodes"]
+    assert "stat_feat_mask" not in pyg_graph["nodes"]
+
+
+def test_to_pyg_node_stat_feature_present_and_missing():
+    graph = pg.from_cpp("int A() { return 0; }")
+    graph.node[0].features.feature["stat_feat"].float_list.value[:] = [1.0, 2.0]
+
+    pyg_graph = pg.to_pyg(graph, node_stat_feature_width=2)
+
+    assert pyg_graph["nodes"].stat_feat.shape == (len(graph.node), 2)
+    assert pyg_graph["nodes"].stat_feat_mask.shape == (len(graph.node),)
+    assert pyg_graph["nodes"].stat_feat[0].tolist() == [1.0, 2.0]
+    assert pyg_graph["nodes"].stat_feat_mask[0].item() == 1.0
+    for i in range(1, len(graph.node)):
+        assert pyg_graph["nodes"].stat_feat[i].tolist() == [0.0, 0.0]
+        assert pyg_graph["nodes"].stat_feat_mask[i].item() == 0.0
+
+
+def test_to_pyg_node_stat_feature_mismatched_length_raises():
+    graph = pg.from_cpp("int A() { return 0; }")
+    graph.node[0].features.feature["stat_feat"].float_list.value[:] = [1.0, 2.0]
+
+    with pytest.raises(pg.GraphTransformError):
+        pg.to_pyg(graph, node_stat_feature_width=3)
+
+
 if __name__ == "__main__":
     main()
