@@ -227,6 +227,25 @@ def tokenize(text: str) -> List[Token]:
             tokens.append(Token("punct", text[i : i + 2]))
             i += 2
             continue
+        if (
+            text[i : i + 2] in (">=", "<=", "==", "!=")
+            and i + 2 < n
+            and (text[i + 2].isalnum() or text[i + 2] == "_")
+        ):
+            # Futhark's debug printer names some temporaries after a
+            # comparison operator, e.g. `==_rhs_8209`. Since `=` is itself a
+            # punct char, this must be checked before the punct dispatch
+            # below, or the leading `=`/`==` gets lexed away and splits the
+            # identifier apart.
+            start = i
+            i += 2
+            while i < n:
+                c = text[i]
+                if c.isspace() or c in _PUNCT_CHARS or c == '"':
+                    break
+                i += 1
+            tokens.append(Token("word", text[start:i]))
+            continue
         if c in _PUNCT_CHARS:
             tokens.append(Token("punct", c))
             i += 1
@@ -241,12 +260,6 @@ def tokenize(text: str) -> List[Token]:
         # nested brackets, so this also works when the expression itself
         # contains a further `d<...>` name) as part of the same word.
         start = i
-        # Futhark's debug printer also names some temporaries after a
-        # comparison operator, e.g. `>=_lhs_14309`. Consume the two-char
-        # operator prefix up front so the `=` doesn't get lexed away as
-        # punctuation and split the identifier apart.
-        if text[i : i + 2] in (">=", "<=", "==", "!="):
-            i += 2
         while i < n:
             c = text[i]
             if c.isspace() or c in _PUNCT_CHARS or c == '"':
@@ -447,6 +460,12 @@ class _Parser:
                 parts.append("[]")
             self._expect("]")
         parts.append(self._expect_word())
+        # A parametrized type like `acc(cert, [shape], {elem_types})` (the
+        # WithAcc accumulator type) has a trailing `(...)` argument list;
+        # discard it like the shape/permutation `RawGroup` arguments.
+        if self._peek_text() == "(":
+            self._advance()
+            self._skip_balanced_rest()
         # A trailing `#(...)` is an aliasing annotation (e.g. `f32#([2], [0])`)
         # attached to the type by the debug printer; discard it.
         if self._peek_text() == "#":
@@ -713,6 +732,11 @@ class _Parser:
         if t is None:
             raise FutharkIRParseError("Unexpected end of input")
 
+        if t.text == "commutative":
+            # Marks a `redomap`/`reduce` operator the compiler proved
+            # commutative; carries no data dependency of its own.
+            self._advance()
+            return self._parse_operand()
         if t.text == "{":
             return self._parse_tuple()
         if t.text == "[" and self._bracket_group_has_type_annotation():
