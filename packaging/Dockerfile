@@ -21,6 +21,7 @@ RUN apt-get update \
         python3-pip \
         python3 \
         rsync \
+        xz-utils \
         zlib1g-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

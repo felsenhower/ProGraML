@@ -31,6 +31,7 @@ high-level parallel operations (``map``, ``reduce``, ``redomap``, ``scan``,
 ...) rather than loops -- which is the representation we want the graph to
 capture (see :mod:`programl.ir.futhark.program_graph_builder`).
 """
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -41,7 +42,15 @@ from programl.ir.futhark import ir_parser
 from programl.ir.futhark.program_graph_builder import build_program_graph
 from programl.proto import ProgramGraph
 
-FUTHARK_BINARY = "futhark"
+# Wheels bundle a static Futhark compiler at programl/bin/futhark.
+_BUNDLED_FUTHARK = Path(__file__).resolve().parents[2] / "bin" / "futhark"
+
+
+def find_futhark() -> Optional[str]:
+    """Locate the Futhark compiler: the bundled binary, else one on ``PATH``."""
+    if _BUNDLED_FUTHARK.is_file():
+        return str(_BUNDLED_FUTHARK)
+    return shutil.which("futhark")
 
 
 def program_graph_from_futhark_ir(ir_text: str, module_name: str = "futhark") -> ProgramGraph:
@@ -65,13 +74,13 @@ def from_futhark(
     entry_points: Optional[List[str]] = None,
     stage: str = "--standard",
     module_name: str = "futhark",
-    futhark_binary: str = FUTHARK_BINARY,
+    futhark_binary: Optional[str] = None,
     timeout: int = 300,
 ) -> ProgramGraph:
     """Construct a Program Graph from a string of Futhark code.
 
-    This requires the ``futhark`` compiler to be installed and on ``PATH``.
-    It is invoked as an ordinary compiler dependency (via
+    This uses the Futhark compiler bundled with the wheel, falling back to a
+    ``futhark`` executable on ``PATH``. It is invoked as an ordinary compiler dependency (via
     :code:`futhark dev`) -- this project does not modify or link against
     Futhark itself.
 
@@ -97,7 +106,8 @@ def from_futhark(
     :param module_name: The name to give the resulting graph's module.
 
     :param futhark_binary: The name (or path) of the Futhark compiler
-        executable.
+        executable. Defaults to the bundled compiler, else :code:`futhark`
+        on ``PATH``.
 
     :param timeout: The maximum number of seconds to wait for the ``futhark``
         invocation before raising an error.
@@ -108,6 +118,8 @@ def from_futhark(
 
     :raises TimeoutError: If the specified timeout is reached.
     """
+    futhark_binary = futhark_binary or find_futhark() or "futhark"
+
     with tempfile.TemporaryDirectory(prefix="programl_futhark_") as tmpdir:
         src_path = Path(tmpdir) / "input.fut"
         src_path.write_text(src, encoding="utf-8")

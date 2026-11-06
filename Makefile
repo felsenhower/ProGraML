@@ -75,7 +75,9 @@ Deployment
 
     make bdist_wheel
         Build an optimized python wheel. The generated file is in
-        dist/programl-<version>-<platform_tags>.whl
+        dist/programl-<version>-<platform_tags>.whl. This bundles the
+        (linux x86_64) Futhark compiler, downloaded from GitHub, for
+        programl.from_futhark().
 
     make install
         Build and install the python wheel.
@@ -172,6 +174,21 @@ regenerate-protos: bazel-build
 vendor-stdlib-headers: bazel-build
 	$(PYTHON) tools/vendor_stdlib_headers.py $(VENDOR_HEADERS_CXX) $(LIBSTDCXX_HEADERS_DEST)
 
+# The Futhark compiler is a static binary that is bundled into the wheel.
+FUTHARK_VERSION ?= 0.27.1
+FUTHARK_SHA256 ?= 11248f098643487627f69695be29d96dee351a56d3f27f3715da7cf0638a0b8f
+FUTHARK_TARBALL := futhark-$(FUTHARK_VERSION)-linux-x86_64.tar.xz
+FUTHARK_URL := https://github.com/diku-dk/futhark/releases/download/v$(FUTHARK_VERSION)/$(FUTHARK_TARBALL)
+FUTHARK_DEST := $(PY_PACKAGE_RUNFILES)/programl/programl/bin/futhark
+
+vendor-futhark: bazel-build
+	mkdir -p $(dir $(FUTHARK_DEST))
+	curl -fsSL -o build/$(FUTHARK_TARBALL) --create-dirs $(FUTHARK_URL)
+	echo "$(FUTHARK_SHA256)  build/$(FUTHARK_TARBALL)" | sha256sum -c -
+	tar -xJOf build/$(FUTHARK_TARBALL) futhark-$(FUTHARK_VERSION)-linux-x86_64/bin/futhark > $(FUTHARK_DEST).tmp
+	chmod 755 $(FUTHARK_DEST).tmp
+	mv -f $(FUTHARK_DEST).tmp $(FUTHARK_DEST)
+
 install-test-data:
 	@echo "$(BAZEL) $(BAZEL_OPTS) build $(BAZEL_BUILD_OPTS) //tests/data"
 	@if ! $(BAZEL) $(BAZEL_OPTS) build $(BAZEL_BUILD_OPTS) //tests/data 2>log.txt ; then \
@@ -181,7 +198,7 @@ install-test-data:
 	fi
 	rm log.txt
 
-bdist_wheel: bazel-build regenerate-protos vendor-stdlib-headers
+bdist_wheel: bazel-build regenerate-protos vendor-stdlib-headers vendor-futhark
 	$(PYTHON) setup.py bdist_wheel
 
 bdist_wheel-linux-rename:
@@ -204,7 +221,7 @@ bdist_wheel-linux-test:
 
 all: docs bdist_wheel bdist_wheel-linux
 
-.PHONY: bazel-build bdist_wheel bdist_wheel-linux bdist_wheel-linux-shell bdist_wheel-linux-test regenerate-protos vendor-stdlib-headers docker-image
+.PHONY: bazel-build bdist_wheel bdist_wheel-linux bdist_wheel-linux-shell bdist_wheel-linux-test regenerate-protos vendor-stdlib-headers vendor-futhark docker-image
 
 
 ###########

@@ -13,18 +13,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import shutil
-
 import pytest
 
 import programl as pg
+from programl.ir.futhark.futhark import find_futhark
 from programl.proto import Edge, Node
 from tests.test_main import main
 
-# The Futhark compiler is an external tool, not built by this project, so
-# skip these tests rather than fail outright when it isn't installed.
+# Source (non-wheel) builds don't bundle the compiler, so skip these tests
+# rather than fail outright when it isn't on PATH either.
 pytestmark = pytest.mark.skipif(
-    shutil.which("futhark") is None, reason="futhark compiler not found on PATH"
+    find_futhark() is None, reason="futhark compiler not bundled or on PATH"
 )
 
 FACT = """
